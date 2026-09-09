@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from build import get_version_from_script, run_pre_commit_checks, strip_comments_and_docstrings
+from build import find_all_python_files, get_version_from_script, run_pre_commit_checks, strip_comments_and_docstrings
 
 
 def test_get_version_from_script():
@@ -55,3 +55,35 @@ def test_run_pre_commit_checks_failure():
         mock_run.side_effect = subprocess.CalledProcessError(returncode=1, cmd="pre-commit", output="Error")
         with pytest.raises(Exception, match="Build wegen fehlgeschlagener Pre-Commit-Prüfungen abgebrochen"):
             run_pre_commit_checks()
+
+
+def test_find_all_python_files_excludes_caches_and_tools():
+    """Prüft, dass find_all_python_files nur Quellcode der App und keine Caches, Tests oder Build-Skripte findet."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        base = pathlib.Path(tmpdir)
+        # Echte App-Dateien
+        (base / "dateicrypt.py").write_text("# app", encoding="utf-8")
+        (base / "secure_memory.py").write_text("# module", encoding="utf-8")
+
+        # Auszuschließende Dateien und Verzeichnisse
+        (base / "build.py").write_text("# build", encoding="utf-8")
+        (base / "audit.py").write_text("# audit", encoding="utf-8")
+        (base / "sichern.py").write_text("# backup", encoding="utf-8")
+
+        # Caches und Ordner
+        cache_dir = base / ".pre-commit-cache" / "repo123"
+        cache_dir.mkdir(parents=True)
+        (cache_dir / "setup.py").write_text("# cache", encoding="utf-8")
+
+        test_dir = base / "tests"
+        test_dir.mkdir()
+        (test_dir / "test_app.py").write_text("# test", encoding="utf-8")
+
+        temp_build_dir = base / "build_temp_123"
+        temp_build_dir.mkdir()
+        (temp_build_dir / "temp.py").write_text("# temp", encoding="utf-8")
+
+        found = find_all_python_files(str(base))
+        found_basenames = {pathlib.Path(f).name for f in found}
+
+        assert found_basenames == {"dateicrypt.py", "secure_memory.py"}

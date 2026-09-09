@@ -73,10 +73,20 @@ Der Datei-Tresor ist eine kostenlose Desktop-Anwendung für Windows, mit der Sie
     pre-commit run --all-files
     ```
 
-5.  **Tests ausführen:**
-    Unit-Tests mit `pytest` starten:
+5.  **Qualitäts- & Sicherheits-Audit sowie Tests ausführen:**
+    Führen Sie das zentrale Audit-Skript aus, um Linter, Formatierer, Security-Scanner und alle Unittests gesammelt zu prüfen:
     ```bash
-    pytest
+    python audit.py
+    ```
+    Alternativ können einzelne Teilbereiche separat geprüft werden:
+    ```bash
+    python audit.py --only-codebase   # Ruff Linter & Formatierung
+    python audit.py --only-security   # Bandit & Pip-Audit
+    python audit.py --only-tests      # Pytest Test-Suite (24 Tests)
+    ```
+    Direkter Testaufruf mit `pytest`:
+    ```bash
+    pytest -v
     ```
 
 6.  **Anwendung starten:**
@@ -87,11 +97,11 @@ Der Datei-Tresor ist eine kostenlose Desktop-Anwendung für Windows, mit der Sie
 
 ## Code-Qualität & Sicherheit
 
-Das Projekt setzt auf automatisierte Qualitätssicherung via `pre-commit`:
-*   **Standard-Hooks:** Validierung von YAML-Dateien, Zeilenenden, Whitespace, AST, Case- & Merge-Konflikten und Schutz privater Schlüssel.
-*   **Ruff:** Schnelles Linting und automatische Formatierung nach modernen Python-Standards.
-*   **Bandit:** Statische Sicherheitsanalyse auf potenzielle Schwachstellen.
-*   **Pytest:** Automatische Ausführung der Unittests vor jedem Commit und Build.
+Das Projekt setzt auf dreistufige automatisierte Qualitätssicherung:
+*   **Codebase Audit:** Ruff-Linter mit Regelsätzen für Fehler- und Stilprüfung (`E`, `F`, `W`, `I`, `B` für Bugbear, `UP` für PyUpgrade) sowie automatische Formatierung.
+*   **Security Audit:** Statische Sicherheitsanalyse mit Bandit auf den Kern-Quelldateien sowie Schwachstellen-Scans der Abhängigkeiten mit `pip-audit`. Härtung gegen Path-Traversal (Zip-Slip) und strikte kryptografische Zufallsquellen (`secrets.token_bytes`).
+*   **Automatisierte Tests:** Vollständige Testabdeckung für die Streaming-AES-256-GCM-Verschlüsselung, Integritäts- und Bit-Flip-Erkennung, sicheres Schlüssel-Caching (`KeyCache`), Profilverwaltung (`ProfileManager`), Arbeitsspeicherverwaltung (`SecureString`) und Build-Routinen.
+*   **Pre-Commit-Hooks:** Automatische Ausführung aller Prüfungen vor jedem Git-Commit.
 
 ## Build-Prozess
 

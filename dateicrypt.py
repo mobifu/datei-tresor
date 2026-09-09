@@ -3,6 +3,7 @@ import hashlib
 import io
 import json
 import os
+import pathlib
 import secrets
 import shutil
 import string
@@ -21,7 +22,18 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from packaging.version import parse as parse_version
-from tkinterdnd2 import DND_FILES, TkinterDnD
+
+try:
+    from tkinterdnd2 import DND_FILES, TkinterDnD
+except ImportError:
+    DND_FILES = None
+
+    class _MockDnDWrapper:
+        pass
+
+    class TkinterDnD:
+        DnDWrapper = _MockDnDWrapper
+
 
 from secure_memory import SecureString  # NEU: Import der sicheren String-Klasse
 
@@ -54,7 +66,7 @@ class KeyCache:
         # Wenn kein Salt übergeben wird (beim Verschlüsseln), muss zuerst einer generiert werden.
         is_new_salt = salt is None
         if is_new_salt:
-            salt = os.urandom(16)
+            salt = secrets.token_bytes(16)
 
         # Wir hashen das Passwort, um es nicht im Klartext als Key zu verwenden
         password_hash = hashlib.sha256(password.encode() + salt).hexdigest()
@@ -128,7 +140,9 @@ class ProfileManager:
 
         try:
             if self.master_salt is None:
-                self.master_salt = os.urandom(16)  # Neuen Salt generieren, falls nicht gesetzt (erste Speicherung)
+                self.master_salt = secrets.token_bytes(
+                    16
+                )  # Neuen Salt generieren, falls nicht gesetzt (erste Speicherung)
 
             # Wenn das Passwort ein SecureString-Objekt ist, den Wert extrahieren.
             pw_to_use = (
@@ -197,7 +211,7 @@ class ProfileManager:
 def get_key_from_password(password, salt=None):
     """Erstellt einen Fernet-Key aus einem Passwort."""
     if salt is None:
-        salt = os.urandom(16)  # Neuer Salt für Verschlüsselung
+        salt = secrets.token_bytes(16)  # Neuer Salt für Verschlüsselung
 
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
@@ -245,7 +259,7 @@ def process_file_stream(mode, filepath, password, progress_callback):
         if mode == "encrypt":
             output_path = filepath + ".crypted"
             key, salt = get_key_from_password(password)
-            nonce = os.urandom(12)  # GCM empfiehlt 12 bytes
+            nonce = secrets.token_bytes(12)  # GCM empfiehlt 12 bytes
 
             cipher = Cipher(algorithms.AES(key), modes.GCM(nonce))
             encryptor = cipher.encryptor()
@@ -398,8 +412,13 @@ def _handle_decrypted_data(decrypted_stream, original_filepath):
 
             decrypted_stream.seek(0)  # Wichtig: Stream für das Entpacken zurücksetzen
             output_folder_path = original_filepath.replace(".crypted", "").replace(".zip", "")
-            zf.extractall(path=output_folder_path)
-            return True, f"Ordner entschlüsselt und wiederhergestellt in:\n{output_folder_path}"
+            target_dir = pathlib.Path(output_folder_path).resolve()
+            for member in zf.infolist():
+                member_path = (target_dir / member.filename).resolve()
+                if not member_path.is_relative_to(target_dir):
+                    raise ValueError(f"Sicherheitsrisiko: Ungültiger Pfad im Archiv ({member.filename})")
+            zf.extractall(path=target_dir)
+            return True, f"Ordner entschlüsselt und wiederhergestellt in:\n{target_dir}"
     except (shutil.ReadError, zipfile.BadZipFile):
         final_output_path = original_filepath.replace(".crypted", "").replace("_archive.zip", "")
         if os.path.exists(final_output_path):
@@ -1459,7 +1478,7 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
             base_path = os.path.dirname(sys.argv[0])
             license_path = os.path.join(base_path, "LICENSE.txt")
 
-            with open(license_path, "r", encoding="utf-8") as f:
+            with open(license_path, encoding="utf-8") as f:
                 license_text = f.read()
 
             # Erstelle ein neues Toplevel-Fenster

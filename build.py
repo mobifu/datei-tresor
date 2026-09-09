@@ -1,12 +1,13 @@
+import ast
 import hashlib
 import logging
 import os
 import platform
+import secrets
 import shutil
 import subprocess
 import sys
 import time
-import tokenize
 from datetime import datetime
 from pathlib import Path
 
@@ -32,7 +33,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 def get_version_from_script(script_path):
     """Liest die VERSION_INFO aus der angegebenen Python-Datei."""
     logging.info(f"Lese Versionsnummer aus '{script_path}'...")
-    with open(script_path, "r", encoding="utf-8") as f:
+    with open(script_path, encoding="utf-8") as f:
         for line in f:
             if line.strip().startswith("VERSION_INFO"):
                 # Wert nach dem Gleichheitszeichen holen
@@ -47,16 +48,37 @@ def get_version_from_script(script_path):
     raise ValueError("VERSION_INFO konnte in der Hauptdatei nicht gefunden werden.")
 
 
-# Funktion zum rekursiven Finden aller Python-Dateien
+# Funktion zum Finden aller Python-Dateien der eigentlichen Anwendung
 def find_all_python_files(directory):
     python_files = []
-    # Verzeichnisse, die von der Suche ausgeschlossen werden sollen
-    excluded_dirs = {BUILD_TEMP, DIST_DIR, "venv", ".git", "__pycache__"}
+    excluded_dir_names = {
+        "venv",
+        ".venv",
+        "env",
+        "tests",
+        "test",
+        "build",
+        "__pycache__",
+        "server",
+    }
+    excluded_file_names = {
+        "build.py",
+        "sichern.py",
+        "audit.py",
+    }
     for root, dirs, files in os.walk(directory):
-        # Modifiziere dirs an Ort und Stelle, um das Betreten der ausgeschlossenen Verzeichnisse zu verhindern
-        dirs[:] = [d for d in dirs if d not in excluded_dirs]
+        # Ignoriere versteckte Ordner (.git, .pre-commit-cache, etc.), temporäre Ordner und Versionen
+        dirs[:] = [
+            d
+            for d in dirs
+            if not d.startswith(".")
+            and not d.startswith("build_temp_")
+            and not d.startswith("dist_")
+            and not d.startswith("1.")
+            and d.lower() not in excluded_dir_names
+        ]
         for file in files:
-            if file.endswith(".py"):
+            if file.endswith(".py") and not file.startswith("test_") and file not in excluded_file_names:
                 python_files.append(os.path.join(root, file))
     return python_files
 
@@ -112,35 +134,25 @@ def create_build_directories():
 def strip_comments_and_docstrings(source_path, target_path):
     """Liest eine Python-Datei, entfernt Kommentare und Docstrings und schreibt das Ergebnis in eine Zieldatei."""
     try:
-        with open(source_path, "rb") as f:
-            # Tokenize the source code
-            tokens = list(tokenize.tokenize(f.readline))
+        with open(source_path, encoding="utf-8") as f:
+            tree = ast.parse(f.read(), filename=source_path)
 
-        # Filtere Kommentare heraus
-        result_tokens = [tok for tok in tokens if tok.type != tokenize.COMMENT]
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+                if (
+                    node.body
+                    and isinstance(node.body[0], ast.Expr)
+                    and isinstance(node.body[0].value, ast.Constant)
+                    and isinstance(node.body[0].value.value, str)
+                ):
+                    if len(node.body) == 1 and not isinstance(node, ast.Module):
+                        node.body[0] = ast.Pass()
+                    else:
+                        node.body.pop(0)
 
-        # Filtere Docstrings heraus (String-Token am Anfang eines Moduls/Funktion/Klasse)
-        # Dies ist eine vereinfachte, aber effektive Methode.
-        # Wir entfernen String-Literale, die auf einer neuen Zeile beginnen.
-        final_tokens = []
-        for i, token in enumerate(result_tokens):
-            # Ein Docstring ist ein STRING-Token, dem typischerweise ein NEWLINE oder INDENT vorangeht.
-            if token.type == tokenize.STRING:
-                # Finde den vorherigen bedeutsamen Token
-                prev_significant_token = None
-                for j in range(i - 1, -1, -1):
-                    if result_tokens[j].type not in (tokenize.NL, tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT):
-                        prev_significant_token = result_tokens[j]
-                        break
-                # Wenn der vorherige Token ein 'def', 'class' oder der Anfang der Datei ist, ist es wahrscheinlich ein Docstring.
-                if prev_significant_token and prev_significant_token.string in ("def", "class", ":", "->"):
-                    continue  # Überspringe diesen Docstring-Token
-            final_tokens.append(token)
-
-        # Konvertiere die Tokens zurück in Code
-        untokenized_code = tokenize.untokenize(final_tokens)
-        with open(target_path, "wb") as f:
-            f.write(untokenized_code)
+        cleaned_code = ast.unparse(tree)
+        with open(target_path, "w", encoding="utf-8") as f:
+            f.write(cleaned_code)
     except Exception as e:
         logging.warning(f"Konnte Kommentare nicht aus '{source_path}' entfernen: {e}. Kopiere Datei unverändert.")
         shutil.copy2(source_path, target_path)
@@ -155,9 +167,9 @@ def secure_delete_file(path, passes=3):
             f.seek(0)  # Gehe zum Anfang der Datei
             length = f.seek(0, 2)  # Finde die Dateigröße heraus
             f.seek(0)  # Zurück zum Anfang
-            for i in range(passes):
+            for _ in range(passes):
                 # Schreibe zufällige Bytes
-                f.write(os.urandom(length))
+                f.write(secrets.token_bytes(length))
                 f.flush()
                 os.fsync(f.fileno())
                 f.seek(0)
@@ -251,11 +263,17 @@ def final_cleanup():
     # NEU: Räume von Cython generierte .c und .pyd Dateien im Quellverzeichnis auf
     logging.info("Suche nach von Cython generierten Dateien (.c, .pyd) zum Entfernen...")
     deleted_cython_files_count = 0
-    # Schließe die dynamisch erstellten Ordner von der Suche aus
-    excluded_cleanup_dirs = {BUILD_TEMP, DIST_DIR, "venv", ".git", "__pycache__", "build"}
     for root, dirs, files in os.walk(SOURCE_DIR):
-        # Verhindere das Betreten der ausgeschlossenen Verzeichnisse
-        dirs[:] = [d for d in dirs if d not in excluded_cleanup_dirs]
+        # Verhindere das Betreten von Dot-Directories, Build-Ordnern und virtuellen Umgebungen
+        dirs[:] = [
+            d
+            for d in dirs
+            if not d.startswith(".")
+            and not d.startswith("build_temp_")
+            and not d.startswith("dist_")
+            and not d.startswith("1.")
+            and d not in {"venv", ".venv", "build", "__pycache__", "tests"}
+        ]
         # Bestimme die plattformspezifische Dateiendung für kompilierte Module
         compiled_ext = ".pyd" if platform.system() == "Windows" else ".so"
         for file in files:
@@ -290,7 +308,7 @@ def generate_hash_file(executable_path, version_info):
             f.write(f"{version_info}+{file_hash}")
         logging.info(f"Datei 'version.txt' erfolgreich in '{version_file_path}' erstellt.")
     except Exception as e:
-        raise Exception(f"Fehler beim Erstellen der Hash-Datei: {e}")
+        raise Exception(f"Fehler beim Erstellen der Hash-Datei: {e}") from e
 
 
 # Funktion zum Ausführen des Vulnerability Scans
@@ -354,7 +372,7 @@ def run_pre_commit_checks():
             logging.error("Ausgabe:\n" + e.stdout)
         if e.stderr:
             logging.error("Fehler:\n" + e.stderr)
-        raise Exception("Build wegen fehlgeschlagener Pre-Commit-Prüfungen abgebrochen.")
+        raise Exception("Build wegen fehlgeschlagener Pre-Commit-Prüfungen abgebrochen.") from e
 
 
 # Build-Prozess ausführen
