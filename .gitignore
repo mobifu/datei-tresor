@@ -1,0 +1,40 @@
+# Virtual Environment
+venv/
+.venv/
+env/
+
+# Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+*.c
+*.so
+
+# Build & Dist
+build/
+build_temp_*/
+dist/
+dist_*/
+*.spec
+
+# Release-Ordner & Binaries
+1.*/
+*.exe
+*.dll
+
+# Secrets & Environment
+.env
+.env.*
+!.env.example
+
+# IDE & Editor
+.vscode/
+.idea/
+
+# Testing & Linting
+.pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
+.pre-commit-cache/

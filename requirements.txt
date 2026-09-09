@@ -1,0 +1,11 @@
+customtkinter
+cryptography
+packaging
+pip-audit
+setuptools
+Cython
+PyInstaller
+pre-commit
+ruff
+bandit
+pytest

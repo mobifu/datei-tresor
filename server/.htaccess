@@ -1,0 +1,5 @@
+# Direkten Zugriff auf Zähler- und Log-Dateien blockieren
+<FilesMatch "^(counter|download_log)\.txt$">
+    Order Allow,Deny
+    Deny from all
+</FilesMatch>

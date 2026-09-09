@@ -1,0 +1,25 @@
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+exclude = [
+    ".git",
+    "venv",
+    ".venv",
+    "build_temp_*",
+    "dist_*",
+    "1.*",
+    "__pycache__",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
+
+[tool.bandit]
+exclude_dirs = ["venv", ".venv", "build_temp_*", "dist_*", "tests"]
+skips = ["B404", "B603", "B607", "B606", "B110"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+pythonpath = ["."]
