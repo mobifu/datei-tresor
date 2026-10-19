@@ -10,6 +10,7 @@ import string
 import subprocess
 import sys
 import threading
+import time
 import traceback
 import urllib.request
 import webbrowser
@@ -85,6 +86,21 @@ class KeyCache:
         # Speichere den abgeleiteten Schlüssel als Base64-String im SecureString
         self._cache[password_hash] = SecureString(base64.urlsafe_b64encode(key).decode())
         return key, salt
+
+    def clear(self):
+        """Löscht alle gespeicherten Schlüssel sicher aus dem Arbeitsspeicher."""
+        for secure_key in self._cache.values():
+            try:
+                secure_key.clear()
+            except Exception:
+                pass
+        self._cache.clear()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.clear()
 
 
 # --- Profile Management Logic ---
@@ -211,6 +227,62 @@ class ProfileManager:
         return self.save_profiles(new_master_password)
 
 
+def generate_secure_password(length=16):
+    """Generiert ein sicheres, kryptografisch zufälliges Passwort."""
+    if length < 12:
+        length = 12
+    lower = string.ascii_lowercase
+    upper = string.ascii_uppercase
+    digits = string.digits
+    punctuation = "!@#$%^&*()_+-=[]{}|"
+
+    # Mindestens ein Zeichen jeder Kategorie
+    password_chars = [
+        secrets.choice(lower),
+        secrets.choice(upper),
+        secrets.choice(digits),
+        secrets.choice(punctuation),
+    ]
+
+    all_chars = lower + upper + digits + punctuation
+    password_chars += [secrets.choice(all_chars) for _ in range(length - len(password_chars))]
+
+    secrets.SystemRandom().shuffle(password_chars)
+    return "".join(password_chars)
+
+
+def is_password_complex_enough(password, require_special=False):
+    """Prüft die Komplexität eines Passworts und gibt ein Tupel (bool, str) zurück."""
+    if len(password) < 12:
+        return False, "Das Passwort muss mindestens 12 Zeichen lang sein."
+    if not any(char.isdigit() for char in password):
+        return False, "Das Passwort muss mindestens eine Ziffer enthalten."
+    if not any(char.islower() for char in password):
+        return False, "Das Passwort muss mindestens einen Kleinbuchstaben enthalten."
+    if not any(char.isupper() for char in password):
+        return False, "Das Passwort muss mindestens einen Großbuchstaben enthalten."
+    if require_special and not any(char in "!@#$%^&*()_+-=[]{}|" for char in password):
+        return False, "Das Passwort muss mindestens ein Sonderzeichen enthalten."
+    return True, "Passwort ist ausreichend komplex."
+
+
+def _report_progress(progress_callback, bytes_processed, total_size, last_state):
+    """Aktualisiert den Fortschritt gedrosselt (max. alle 1% oder 100ms), um den UI-Thread zu entlasten."""
+    if not progress_callback:
+        return
+    ratio = bytes_processed / total_size if total_size > 0 else 1.0
+    now = time.monotonic()
+    last_ratio, last_time = last_state
+    if last_time == 0.0:
+        last_state[1] = now
+        last_time = now
+
+    if (ratio - last_ratio >= 0.01) or (now - last_time >= 0.1) or (bytes_processed >= total_size):
+        progress_callback(ratio)
+        last_state[0] = ratio
+        last_state[1] = now
+
+
 def get_key_from_password(password, salt=None):
     """Erstellt einen Fernet-Key aus einem Passwort."""
     if salt is None:
@@ -274,6 +346,7 @@ def process_file_stream(mode, filepath, password, progress_callback):
 
                 total_size = os.path.getsize(filepath)
                 bytes_processed = 0
+                progress_state = [0.0, 0.0]
 
                 while True:
                     chunk = infile.read(CHUNK_SIZE)
@@ -282,7 +355,7 @@ def process_file_stream(mode, filepath, password, progress_callback):
                     encrypted_chunk = encryptor.update(chunk)
                     outfile.write(encrypted_chunk)
                     bytes_processed += len(chunk)
-                    progress_callback(bytes_processed / total_size if total_size > 0 else 1)
+                    _report_progress(progress_callback, bytes_processed, total_size, progress_state)
 
                 # Finalisiere die Verschlüsselung und schreibe den Authentifizierungs-Tag
                 outfile.write(encryptor.finalize())
@@ -325,6 +398,7 @@ def process_file_stream(mode, filepath, password, progress_callback):
                     infile.seek(16 + 12)  # Gehe zum Anfang der verschlüsselten Daten
                     total_size = tag_position - (16 + 12)
                     bytes_processed = 0
+                    progress_state = [0.0, 0.0]
 
                     while True:
                         # Lese bis zum nächsten Chunk oder bis zum Tag
@@ -337,7 +411,7 @@ def process_file_stream(mode, filepath, password, progress_callback):
                         decrypted_stream.write(decrypted_chunk)
 
                         bytes_processed += len(chunk)
-                        progress_callback(bytes_processed / total_size if total_size > 0 else 1)
+                        _report_progress(progress_callback, bytes_processed, total_size, progress_state)
 
                     # Finalize wird hier aufgerufen, um den Tag zu verifizieren. Löst bei Fehler eine Exception aus.
                     decrypted_stream.write(decryptor.finalize())
@@ -636,6 +710,18 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
         self.dnd_bind("<<Drop>>", self._handle_drop)
         self.dnd_bind("<<DragLeave>>", self._on_drag_leave)
 
+        # Sicheres Beenden: Cache beim Schließen löschen
+        self.protocol("WM_DELETE_WINDOW", self._on_app_close)
+
+    def _on_app_close(self):
+        """Bereinigt sensitive Schlüssel aus dem Cache beim Schließen."""
+        try:
+            if hasattr(self, "key_cache"):
+                self.key_cache.clear()
+        except Exception:
+            pass
+        self.destroy()
+
     def open_link(self, url):  # Korrigierte Einrückung
         webbrowser.open_new(url)
 
@@ -665,6 +751,7 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
 
     def _on_profile_selected(self, choice):  # Korrigierte Einrückung
         """Callback, wenn ein Profil aus dem Dropdown ausgewählt wird."""
+        self.key_cache.clear()  # Vorherige Schlüssel sicher aus dem RAM bereinigen
         if choice == "Kein Profil ausgewählt":
             self.active_profile_name = None
             self.entry_pw.configure(state="normal")
@@ -957,17 +1044,9 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
         # Entferne das Binding, damit die Prüfung nicht bei jedem Fokus erneut startet.
         self.unbind("<FocusIn>")
 
-    def _is_password_complex_enough(self, password):
-        """Prüft die Komplexität eines Passworts und gibt ein Tupel (bool, str) zurück."""
-        if len(password) < 12:
-            return False, "Das Passwort muss mindestens 12 Zeichen lang sein."
-        if not any(char.isdigit() for char in password):
-            return False, "Das Passwort muss mindestens eine Ziffer enthalten."
-        if not any(char.islower() for char in password):
-            return False, "Das Passwort muss mindestens einen Kleinbuchstaben enthalten."
-        if not any(char.isupper() for char in password):
-            return False, "Das Passwort muss mindestens einen Großbuchstaben enthalten."
-        return True, "Passwort ist ausreichend komplex."
+    def _is_password_complex_enough(self, password, require_special=False):
+        """Prüft die Komplexität eines Passworts (Delegation an is_password_complex_enough)."""
+        return is_password_complex_enough(password, require_special=require_special)
 
     def _handle_exception(self, exc_type, exc_value, exc_traceback):  # Korrigierte Einrückung
         """Global exception handler to catch unhandled errors."""
@@ -1228,27 +1307,8 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
         btn_save.pack(pady=(10, 0))
 
     def _generate_secure_password(self, length=16):
-        """Generiert ein sicheres, zufälliges Passwort, das die Komplexitätsanforderungen erfüllt."""
-        lower = string.ascii_lowercase
-        upper = string.ascii_uppercase
-        digits = string.digits
-        # Eine Auswahl an Sonderzeichen, die in der Regel unproblematisch sind
-        punctuation = "!@#$%^&*()_+-=[]{}|"
-
-        # Stelle sicher, dass wir von jeder Sorte mindestens einen haben
-        password_chars = [
-            secrets.choice(lower),
-            secrets.choice(upper),
-            secrets.choice(digits),
-            secrets.choice(punctuation),
-        ]
-
-        # Fülle den Rest des Passworts mit einer zufälligen Mischung aus allen Zeichen
-        all_chars = lower + upper + digits + punctuation
-        password_chars += [secrets.choice(all_chars) for _ in range(length - len(password_chars))]
-
-        secrets.SystemRandom().shuffle(password_chars)  # Mische die Zeichen
-        return "".join(password_chars)
+        """Generiert ein sicheres, zufälliges Passwort (Delegation an generate_secure_password)."""
+        return generate_secure_password(length=length)
 
     def _show_add_edit_profile_dialog(
         self, parent_dialog, refresh_callback, profile_name_to_edit=None
@@ -1606,7 +1666,9 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
         download_thread.start()
 
     def _download_update_file(self, dialog, progress_bar, status_label, expected_hash):  # Korrigierte Einrückung
-        """Lädt die Update-Datei herunter und aktualisiert die GUI."""
+        """Lädt die Update-Datei herunter und aktualisiert die GUI atomar und resilient."""
+        temp_destination_path = None
+        destination_path = None
         try:
             with urllib.request.urlopen(UPDATE_URL, timeout=10) as response:  # nosec B310
                 # Dateinamen aus dem 'Content-Disposition'-Header extrahieren
@@ -1633,21 +1695,23 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
                     self.after(0, dialog.destroy)  # Schließt das Update-Fenster
                     return
 
+                temp_destination_path = destination_path + ".part"
                 total_size = int(response.getheader("Content-Length", 0))
                 chunk_size = 8192
                 bytes_read = 0
+                hasher = hashlib.sha256()
 
-                with open(destination_path, "wb") as f:
+                with open(temp_destination_path, "wb") as f:
                     while True:
                         chunk = response.read(chunk_size)
                         if not chunk:
                             break
                         f.write(chunk)
+                        hasher.update(chunk)
                         bytes_read += len(chunk)
 
                         # Fortschritt aktualisieren
                         progress = bytes_read / total_size if total_size > 0 else 0
-                        # MB-Anzeige nur bei bekannter Gesamtgröße
                         size_text = f"{(bytes_read / 1024**2):.1f} MB"
                         if total_size > 0:
                             size_text += f" / {(total_size / 1024**2):.1f} MB"
@@ -1655,38 +1719,43 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
                         self.after(0, lambda p=progress: progress_bar.set(p))
                         self.after(0, lambda t=size_text: status_label.configure(text=t))
 
-            # --- START: HASH-VERIFIZIERUNG ---
+            # --- START: HASH-VERIFIZIERUNG & ATOMARE SPEICHERUNG ---
             if expected_hash:
                 self.after(0, lambda: status_label.configure(text="Überprüfe Datei-Integrität..."))
-
-                hasher = hashlib.sha256()
-                with open(destination_path, "rb") as f:
-                    for block in iter(lambda: f.read(4096), b""):
-                        hasher.update(block)
-
                 downloaded_file_hash = hasher.hexdigest()
 
                 if downloaded_file_hash != expected_hash:
-                    # Hashes stimmen nicht überein! Datei löschen und Fehler anzeigen.
-                    os.remove(destination_path)
-                    error_message = "Sicherheitswarnung: Die Integrität der heruntergeladenen Datei konnte nicht verifiziert werden. Der Hash stimmt nicht überein. Die Datei wurde gelöscht."
+                    if temp_destination_path and os.path.exists(temp_destination_path):
+                        os.remove(temp_destination_path)
+                    error_message = (
+                        "Sicherheitswarnung: Die Integrität der heruntergeladenen Datei konnte nicht "
+                        "verifiziert werden. Der Hash stimmt nicht überein. Die Datei wurde gelöscht."
+                    )
                     self.after(0, lambda: messagebox.showerror("Fehler", error_message, parent=dialog))
                     self.after(0, dialog.destroy)
                     return
-            # --- ENDE: HASH-VERIFIZIERUNG ---
+
+            # Atomares Ersetzen: Erst jetzt existiert die Zieldatei
+            if temp_destination_path and os.path.exists(temp_destination_path):
+                os.replace(temp_destination_path, destination_path)
+            # --- ENDE: HASH-VERIFIZIERUNG & ATOMARE SPEICHERUNG ---
 
             # Erfolgsmeldung im Hauptthread anzeigen
             self.after(0, lambda: self._show_download_complete(dialog, destination_path))
 
         except Exception as e:
+            if temp_destination_path and os.path.exists(temp_destination_path):
+                try:
+                    os.remove(temp_destination_path)
+                except Exception:
+                    pass
             error_message = f"Download fehlgeschlagen:\n\n{e}"
             self.after(0, lambda: messagebox.showerror("Fehler", error_message, parent=dialog))
-            # GUI im Dialog zurücksetzen, falls er noch offen ist
             try:
                 self.after(0, lambda: status_label.configure(text="Fehler!", text_color="red"))
                 self.after(0, lambda: progress_bar.pack_forget())
             except Exception:
-                pass  # Dialog könnte schon geschlossen sein
+                pass
 
     def _show_download_complete(self, dialog, path):  # Korrigierte Einrückung
         """Zeigt eine Erfolgsmeldung nach dem Download an."""

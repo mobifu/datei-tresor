@@ -17,7 +17,10 @@ from dateicrypt import (
     KeyCache,
     ProfileManager,
     _handle_decrypted_data,
+    _report_progress,
+    generate_secure_password,
     get_key_from_password,
+    is_password_complex_enough,
     process_file,
     process_file_stream,
     process_folder,
@@ -343,3 +346,93 @@ def test_process_folder_invalid_mode():
     ok, msg = process_folder("decrypt", "ordner_pfad", "passwort")
     assert not ok
     assert "Interne Logik fehlerhaft" in msg
+
+
+def test_key_cache_clear_and_context_manager():
+    """Prüft das sichere Leeren des Caches und die Context-Manager-Nutzung."""
+    cache = KeyCache()
+    salt = b"test_salt_654321"
+    key, s = cache.get_key("geheim", salt)
+    assert len(cache._cache) == 1
+
+    # Cache explizit leeren
+    cache.clear()
+    assert len(cache._cache) == 0
+
+    # Context Manager test
+    with KeyCache() as c:
+        c.get_key("pw", salt)
+        assert len(c._cache) == 1
+    assert len(c._cache) == 0
+
+
+def test_generate_secure_password():
+    """Prüft die Generierung sicherer Passwörter inkl. Minimallänge und Zeichenklassen."""
+    pw = generate_secure_password(length=20)
+    assert len(pw) == 20
+    assert any(c.islower() for c in pw)
+    assert any(c.isupper() for c in pw)
+    assert any(c.isdigit() for c in pw)
+    assert any(c in "!@#$%^&*()_+-=[]{}|" for c in pw)
+
+    # Mindestlänge 12 bei zu kleinem Parameter
+    short_pw = generate_secure_password(length=5)
+    assert len(short_pw) == 12
+
+
+def test_is_password_complex_enough():
+    """Prüft die Validierung der Passwort-Komplexität."""
+    # Zu kurz
+    ok, msg = is_password_complex_enough("Ab1!")
+    assert not ok
+    assert "12 Zeichen" in msg
+
+    # Fehlende Ziffer
+    ok, msg = is_password_complex_enough("Abcdefghijklm!")
+    assert not ok
+    assert "Ziffer" in msg
+
+    # Fehlender Kleinbuchstabe
+    ok, msg = is_password_complex_enough("ABCDEFGHIJKL1!")
+    assert not ok
+    assert "Kleinbuchstaben" in msg
+
+    # Fehlender Großbuchstabe
+    ok, msg = is_password_complex_enough("abcdefghijkl1!")
+    assert not ok
+    assert "Großbuchstaben" in msg
+
+    # Ausreichend komplex (Standard ohne erzwungenes Sonderzeichen)
+    ok, msg = is_password_complex_enough("SicheresPasswort123")
+    assert ok
+
+    # Sonderzeichen erzwungen
+    ok_no_special, _ = is_password_complex_enough("SicheresPasswort123", require_special=True)
+    assert not ok_no_special
+
+    ok_with_special, _ = is_password_complex_enough("SicheresPasswort123!", require_special=True)
+    assert ok_with_special
+
+
+def test_report_progress_throttling():
+    """Prüft, dass Fortschrittsupdates gedrosselt werden und nicht bei jedem Minischritt triggern."""
+    calls = []
+
+    def mock_cb(val):
+        calls.append(val)
+
+    state = [0.0, 0.0]
+
+    # Minimaler Fortschritt (< 1%) -> Kein Callback
+    _report_progress(mock_cb, 5, 1000, state)
+    assert len(calls) == 0
+
+    # Fortschritt >= 1% -> Callback getriggert
+    _report_progress(mock_cb, 10, 1000, state)
+    assert len(calls) == 1
+    assert calls[-1] == 0.01
+
+    # Abschluss (100%) -> Immer Callback
+    _report_progress(mock_cb, 1000, 1000, state)
+    assert len(calls) == 2
+    assert calls[-1] == 1.0

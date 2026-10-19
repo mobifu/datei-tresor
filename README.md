@@ -82,7 +82,7 @@ Der Datei-Tresor ist eine kostenlose Desktop-Anwendung für Windows, mit der Sie
     ```bash
     python audit.py --only-codebase   # Ruff Linter & Formatierung
     python audit.py --only-security   # Bandit & Pip-Audit
-    python audit.py --only-tests      # Pytest Test-Suite (46 Tests)
+    python audit.py --only-tests      # Pytest Test-Suite (50 Tests)
     ```
     Direkter Testaufruf mit `pytest`:
     ```bash
@@ -100,7 +100,7 @@ Der Datei-Tresor ist eine kostenlose Desktop-Anwendung für Windows, mit der Sie
 Das Projekt setzt auf dreistufige automatisierte Qualitätssicherung:
 *   **Codebase Audit:** Ruff-Linter mit Regelsätzen für Fehler- und Stilprüfung (`E`, `F`, `W`, `I`, `B` für Bugbear, `UP` für PyUpgrade) sowie automatische Formatierung.
 *   **Security Audit:** Statische Sicherheitsanalyse mit Bandit auf den Kern-Quelldateien sowie Schwachstellen-Scans der Abhängigkeiten mit `pip-audit`. Härtung gegen Path-Traversal (Zip-Slip) und strikte kryptografische Zufallsquellen (`secrets.token_bytes`).
-*   **Automatisierte Tests:** Vollständige Testabdeckung (46 Tests) für die Streaming-AES-256-GCM-Verschlüsselung, Integritäts- und Bit-Flip-Erkennung, Legacy-Fernet-Fallback (Abwärtskompatibilität), Kollisionsbehandlung, sicheres Schlüssel-Caching (`KeyCache`), Profilverwaltung (`ProfileManager`), Arbeitsspeicherverwaltung (`SecureString`), Audit-Fehlerbehandlung und Build-Routinen.
+*   **Automatisierte Tests:** Vollständige Testabdeckung (50 Tests) für die Streaming-AES-256-GCM-Verschlüsselung, Integritäts- und Bit-Flip-Erkennung, Legacy-Fernet-Fallback (Abwärtskompatibilität), Kollisionsbehandlung, sicheres Schlüssel-Caching (`KeyCache`) mit automatischem RAM-Wipe, Throttling des UI-Fortschritts, atomaren Update-Download, Profilverwaltung (`ProfileManager`), Arbeitsspeicherverwaltung (`SecureString`), Audit-Fehlerbehandlung und Build-Routinen.
 *   **Pre-Commit-Hooks:** Automatische Ausführung aller Prüfungen vor jedem Git-Commit.
 
 ## Build-Prozess

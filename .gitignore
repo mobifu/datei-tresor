@@ -38,3 +38,12 @@ dist_*/
 htmlcov/
 .ruff_cache/
 .pre-commit-cache/
+
+# Lokale Daten & Chiffrate
+profiles.dat
+*.crypted
+
+# Lokale Skripte & Notizen
+sichern.py
+start_venv.bat
+befehle.txt
