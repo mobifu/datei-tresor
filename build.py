@@ -565,6 +565,15 @@ def run_build_process(main_script, app_name, target_version=None, interactive=Tr
         # 14. Finales Aufräumen
         final_cleanup()
 
+        # Desktop-Kopie automatisch aktualisieren, falls auf dem Desktop vorhanden
+        desktop_path = os.path.join(os.path.expanduser("~"), "Desktop", f"{app_name}.exe")
+        if os.path.exists(desktop_path):
+            try:
+                shutil.copy2(executable_path, desktop_path)
+                logging.info(f"Desktop-Datei unter '{desktop_path}' erfolgreich aktualisiert.")
+            except Exception as copy_err:
+                logging.warning(f"Konnte Desktop-Datei nicht aktualisieren: {copy_err}")
+
         logging.info(f"Build abgeschlossen! Standalone-Anwendung befindet sich in '{DIST_DIR}'.")
 
     except Exception as e:
