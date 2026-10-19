@@ -47,3 +47,7 @@ profiles.dat
 sichern.py
 start_venv.bat
 befehle.txt
+
+# Nicht-öffentliche Verzeichnisse
+bilder/
+server/
