@@ -543,7 +543,8 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
         self.dnd_available = False
         try:
             if hasattr(sys, "_MEIPASS"):
-                # Im PyInstaller Onefile-Modus Pfade zu tkdnd in Tcls auto_path registrieren
+                # Im PyInstaller Onefile-Modus Pfade zu tkdnd in Tcls auto_path registrieren.
+                # WICHTIG: Tcl erfordert zwingend Forward-Slashes '/', da Backslashes als Escapes (\t, \U etc.) interpretiert werden.
                 possible_dnd_dirs = [
                     os.path.join(sys._MEIPASS, "tkinterdnd2", "tkdnd", "win-x64"),
                     os.path.join(sys._MEIPASS, "tkinterdnd2", "tkdnd"),
@@ -552,9 +553,12 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
                 ]
                 for dnd_dir in possible_dnd_dirs:
                     if os.path.isdir(dnd_dir):
-                        self.tk.call("lappend", "auto_path", dnd_dir)
+                        self.tk.call("lappend", "auto_path", dnd_dir.replace("\\", "/"))
 
-            self.TkdndVersion = TkinterDnD._require(self)
+            try:
+                self.TkdndVersion = self.tk.call("package", "require", "tkdnd")
+            except Exception:
+                self.TkdndVersion = TkinterDnD._require(self)
             self.dnd_available = True
         except Exception as e:
             # Fängt Fehler ab, falls TkDND auf dem System nicht geladen werden kann
