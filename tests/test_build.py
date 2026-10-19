@@ -167,6 +167,8 @@ def test_create_pyinstaller_command_bundles_license():
     cmd = create_pyinstaller_command("main.py", "TestApp")
     assert "--onefile" in cmd
     assert "TestApp" in cmd
+    assert "--collect-all" in cmd
+    assert "tkinterdnd2" in cmd
     if pathlib.Path("LICENSE.txt").exists():
         assert "--add-data" in cmd
         assert any("LICENSE.txt" in arg for arg in cmd)

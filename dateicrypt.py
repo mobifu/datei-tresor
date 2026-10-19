@@ -540,8 +540,10 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
     def __init__(self):
         super().__init__()
         # Diese Zeile ist für die Initialisierung von tkinterdnd2 erforderlich
+        self.dnd_available = False
         try:
             self.TkdndVersion = TkinterDnD._require(self)
+            self.dnd_available = True
         except Exception as e:
             # Fängt einen seltenen Fehler ab, der auf manchen Systemen auftreten kann.
             print(f"Warnung: Konnte TkinterDND nicht initialisieren: {e}")
@@ -703,12 +705,15 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
         # Binde den ersten Update-Check an das Ereignis, wenn das Fenster den Fokus erhält.
         self.bind("<FocusIn>", self._run_first_update_check, add="+")
 
-        # Drag-and-Drop-Events für das gesamte Fenster registrieren
-        # Reihenfolge ist wichtig: Enter/Leave vor Drop
-        self.drop_target_register(DND_FILES)
-        self.dnd_bind("<<DragEnter>>", self._on_drag_enter)
-        self.dnd_bind("<<Drop>>", self._handle_drop)
-        self.dnd_bind("<<DragLeave>>", self._on_drag_leave)
+        # Drag-and-Drop-Events für das gesamte Fenster registrieren (nur wenn DnD verfügbar)
+        if getattr(self, "dnd_available", False) and hasattr(self, "drop_target_register") and DND_FILES:
+            try:
+                self.drop_target_register(DND_FILES)
+                self.dnd_bind("<<DragEnter>>", self._on_drag_enter)
+                self.dnd_bind("<<Drop>>", self._handle_drop)
+                self.dnd_bind("<<DragLeave>>", self._on_drag_leave)
+            except Exception as e:
+                print(f"Warnung: Fehler bei DnD-Registrierung: {e}")
 
         # Sicheres Beenden: Cache beim Schließen löschen
         self.protocol("WM_DELETE_WINDOW", self._on_app_close)
