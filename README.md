@@ -6,9 +6,6 @@
 
 Der Datei-Tresor ist eine kostenlose Desktop-Anwendung für Windows, mit der Sie jede Art von Datei oder Ordner mit einem Passwort schützen können. Die Software verwendet eine starke, nach Industriestandard anerkannte Verschlüsselung, um Ihre Daten unlesbar zu machen. Nur mit dem korrekten Passwort können die Daten wieder entschlüsselt werden.
 
-
-**[JETZT KOSTENLOS HERUNTERLADEN](https://www.agentur-schoelzke.de/daten_tresor/download.php)**
-
 ## Features
 
 *   **Moderne, starke Verschlüsselung:** Nutzt `cryptography` für eine robuste Verschlüsselung im AES-256-GCM-Modus.
