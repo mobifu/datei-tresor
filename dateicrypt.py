@@ -539,18 +539,34 @@ def process_folder(mode, folderpath, password):
 class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
     def __init__(self):
         super().__init__()
-        # Diese Zeile ist für die Initialisierung von tkinterdnd2 erforderlich
+        # Initialisierung von tkinterdnd2 (inkl. PyInstaller Bundle-Pfade)
         self.dnd_available = False
         try:
+            if hasattr(sys, "_MEIPASS"):
+                # Im PyInstaller Onefile-Modus Pfade zu tkdnd in Tcls auto_path registrieren
+                possible_dnd_dirs = [
+                    os.path.join(sys._MEIPASS, "tkinterdnd2", "tkdnd", "win-x64"),
+                    os.path.join(sys._MEIPASS, "tkinterdnd2", "tkdnd"),
+                    os.path.join(sys._MEIPASS, "tkdnd", "win-x64"),
+                    os.path.join(sys._MEIPASS, "tkdnd"),
+                ]
+                for dnd_dir in possible_dnd_dirs:
+                    if os.path.isdir(dnd_dir):
+                        self.tk.call("lappend", "auto_path", dnd_dir)
+
             self.TkdndVersion = TkinterDnD._require(self)
             self.dnd_available = True
         except Exception as e:
-            # Fängt einen seltenen Fehler ab, der auf manchen Systemen auftreten kann.
+            # Fängt Fehler ab, falls TkDND auf dem System nicht geladen werden kann
             print(f"Warnung: Konnte TkinterDND nicht initialisieren: {e}")
-            messagebox.showwarning("Warnung", "Drag-and-Drop-Funktionalität konnte nicht initialisiert werden.")
+            messagebox.showwarning(
+                "Warnung",
+                f"Drag-and-Drop-Funktionalität konnte nicht initialisiert werden:\n{e}",
+            )
 
         self.title("Datei Tresor")
         self.geometry("500x350")
+
         # Setze das Erscheinungsbild (z.B. "System", "Dark", "Light")
         customtkinter.set_appearance_mode("System")
         customtkinter.set_default_color_theme("blue")

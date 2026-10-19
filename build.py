@@ -305,7 +305,9 @@ def cleanup_build_files():
 # PyInstaller-Befehl erstellen
 def create_pyinstaller_command(main_script, app_name):
     command = [
-        "pyinstaller",
+        sys.executable,
+        "-m",
+        "PyInstaller",
         "--onefile",
         "--name",
         app_name,
