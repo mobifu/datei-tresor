@@ -1,16 +1,24 @@
+import base64
 import io
 import os
 import pathlib
+import secrets
 import tempfile
 import zipfile
+from datetime import datetime
 
 import pytest
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 from dateicrypt import (
+    COMPANY_NAME,
     KeyCache,
     ProfileManager,
     _handle_decrypted_data,
     get_key_from_password,
+    process_file,
     process_file_stream,
     process_folder,
 )
@@ -230,3 +238,108 @@ def test_zip_slip_protection():
 
         with pytest.raises(ValueError, match="Sicherheitsrisiko"):
             _handle_decrypted_data(zip_buffer, crypted_target)
+
+
+def test_company_name_contains_current_year():
+    """Prüft, dass der Firmenname dynamisch das aktuelle Jahr beinhaltet."""
+    current_year = str(datetime.now().year)
+    assert current_year in COMPANY_NAME
+    assert COMPANY_NAME.startswith("© Agentur Schölzke")
+
+
+def test_process_file_stream_legacy_fernet_fallback():
+    """Prüft, dass alte mit Fernet verschlüsselte Dateien erfolgreich per Fallback entschlüsselt werden."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        test_payload = b"Alte Fernet verschluesselte Daten!"
+        salt = secrets.token_bytes(16)
+        password = "altes_geheimes_passwort"
+
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=100000,
+        )
+        key_bytes = kdf.derive(password.encode("utf-8"))
+        fernet = Fernet(base64.urlsafe_b64encode(key_bytes))
+        encrypted_token = fernet.encrypt(test_payload)
+
+        legacy_file = pathlib.Path(tmpdir) / "altes_dokument.txt.crypted"
+        legacy_file.write_bytes(salt + encrypted_token)
+
+        def dummy_progress(v):
+            pass
+
+        ok_dec, msg_dec = process_file_stream("decrypt", str(legacy_file), password, dummy_progress)
+        assert ok_dec
+        restored_file = pathlib.Path(tmpdir) / "altes_dokument.txt"
+        assert restored_file.exists()
+        assert restored_file.read_bytes() == test_payload
+
+
+def test_process_file_stream_destination_collision():
+    """Prüft, dass bei bereits existierender Zieldatei mit _decrypted-Suffix kollisionsfrei gespeichert wird."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        original_file = pathlib.Path(tmpdir) / "notizen.txt"
+        secret_content = b"Geheimer Originalinhalt"
+        original_file.write_bytes(secret_content)
+
+        def dummy_progress(v):
+            pass
+
+        ok_enc, _ = process_file_stream("encrypt", str(original_file), "kollisions_passwort", dummy_progress)
+        assert ok_enc
+
+        # Zieldatei existiert bereits mit anderem Inhalt
+        original_file.write_bytes(b"Bestehende andere Datei")
+        crypted_file = pathlib.Path(str(original_file) + ".crypted")
+
+        ok_dec, _ = process_file_stream("decrypt", str(crypted_file), "kollisions_passwort", dummy_progress)
+        assert ok_dec
+
+        collision_file = pathlib.Path(tmpdir) / "notizen_decrypted.txt"
+        assert collision_file.exists()
+        assert collision_file.read_bytes() == secret_content
+        assert original_file.read_bytes() == b"Bestehende andere Datei"
+
+
+def test_process_file_stream_invalid_extension():
+    """Prüft, dass Dateien ohne .crypted-Endung bei der Entschlüsselung abgelehnt werden."""
+
+    def dummy_progress(v):
+        pass
+
+    ok, msg = process_file_stream("decrypt", "datei.txt", "passwort", dummy_progress)
+    assert not ok
+    assert ".crypted" in msg
+
+
+def test_process_file_stream_truncated_file():
+    """Prüft, dass korrupte/abgeschnittene Dateien (< 44 Bytes Header) sicher abgewiesen werden."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        truncated_file = pathlib.Path(tmpdir) / "defekt.txt.crypted"
+        truncated_file.write_bytes(b"zu_kurz")
+
+        def dummy_progress(v):
+            pass
+
+        ok, msg = process_file_stream("decrypt", str(truncated_file), "passwort", dummy_progress)
+        assert not ok
+
+
+def test_process_file_obsolete_and_invalid():
+    """Prüft die Fehlerbehandlung in der alten process_file-Funktion."""
+    ok_enc, msg_enc = process_file("encrypt", "irgendwas.txt", "passwort")
+    assert not ok_enc
+    assert "Veralteter Codepfad" in msg_enc
+
+    ok_dec, msg_dec = process_file("decrypt", "nicht_crypted.txt", "passwort")
+    assert not ok_dec
+    assert ".crypted" in msg_dec
+
+
+def test_process_folder_invalid_mode():
+    """Prüft, dass process_folder mit invalidem Modus sauber abbricht."""
+    ok, msg = process_folder("decrypt", "ordner_pfad", "passwort")
+    assert not ok
+    assert "Interne Logik fehlerhaft" in msg

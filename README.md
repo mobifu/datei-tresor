@@ -82,7 +82,7 @@ Der Datei-Tresor ist eine kostenlose Desktop-Anwendung für Windows, mit der Sie
     ```bash
     python audit.py --only-codebase   # Ruff Linter & Formatierung
     python audit.py --only-security   # Bandit & Pip-Audit
-    python audit.py --only-tests      # Pytest Test-Suite (24 Tests)
+    python audit.py --only-tests      # Pytest Test-Suite (46 Tests)
     ```
     Direkter Testaufruf mit `pytest`:
     ```bash
@@ -100,7 +100,7 @@ Der Datei-Tresor ist eine kostenlose Desktop-Anwendung für Windows, mit der Sie
 Das Projekt setzt auf dreistufige automatisierte Qualitätssicherung:
 *   **Codebase Audit:** Ruff-Linter mit Regelsätzen für Fehler- und Stilprüfung (`E`, `F`, `W`, `I`, `B` für Bugbear, `UP` für PyUpgrade) sowie automatische Formatierung.
 *   **Security Audit:** Statische Sicherheitsanalyse mit Bandit auf den Kern-Quelldateien sowie Schwachstellen-Scans der Abhängigkeiten mit `pip-audit`. Härtung gegen Path-Traversal (Zip-Slip) und strikte kryptografische Zufallsquellen (`secrets.token_bytes`).
-*   **Automatisierte Tests:** Vollständige Testabdeckung für die Streaming-AES-256-GCM-Verschlüsselung, Integritäts- und Bit-Flip-Erkennung, sicheres Schlüssel-Caching (`KeyCache`), Profilverwaltung (`ProfileManager`), Arbeitsspeicherverwaltung (`SecureString`) und Build-Routinen.
+*   **Automatisierte Tests:** Vollständige Testabdeckung (46 Tests) für die Streaming-AES-256-GCM-Verschlüsselung, Integritäts- und Bit-Flip-Erkennung, Legacy-Fernet-Fallback (Abwärtskompatibilität), Kollisionsbehandlung, sicheres Schlüssel-Caching (`KeyCache`), Profilverwaltung (`ProfileManager`), Arbeitsspeicherverwaltung (`SecureString`), Audit-Fehlerbehandlung und Build-Routinen.
 *   **Pre-Commit-Hooks:** Automatische Ausführung aller Prüfungen vor jedem Git-Commit.
 
 ## Build-Prozess
@@ -113,18 +113,28 @@ Um einen Build zu starten, führen Sie einfach das Skript aus:
 python build.py
 ```
 
-Der Prozess führt folgende Schritte aus:
-1.  **Pre-Commit-Prüfungen:** Führt automatisiert alle Linter-, Formatierungs-, Sicherheits- und Testprüfungen (`ruff`, `bandit`, `pytest`) aus und bricht bei Fehlern ab.
-2.  **Vulnerability Scan:** Prüft die installierten Pakete mit `pip-audit` auf Sicherheitslücken.
-3.  **Laufenden Prozess beenden:** Schließt eine eventuell bereits geöffnete Instanz der Anwendung.
-4.  **Aufräumen:** Entfernt alte Build-Artefakte.
-5.  **Code-Bereinigung:** Entfernt Kommentare und Docstrings aus dem Quellcode für die Kompilierung.
-6.  **Cythonize:** Konvertiert die bereinigten `.py`-Dateien in `.c`-Dateien und kompiliert sie zu `.pyd`-Modulen.
-7.  **PyInstaller:** Bündelt alle Module und das Hauptskript in eine einzige ausführbare Datei.
-8.  **Hash-Generierung:** Erstellt eine SHA-256-Prüfsumme für Updates.
-9.  **Sicheres finales Aufräumen:** Entfernt alle temporären Build-Dateien und überschreibt sie vorher mehrfach mit Zufallsdaten, um eine Wiederherstellung zu verhindern.
+Optional kann eine Version direkt per Parameter übergeben oder der interaktive Modus gesteuert werden:
 
-Die fertige Anwendung befindet sich anschließend in einem neu erstellten `dist_YYYYMMDD-HHMMSS`-Verzeichnis.
+```bash
+python build.py --version v1.4.2
+python build.py --no-interactive
+```
+
+Der Prozess führt folgende Schritte aus:
+1.  **Versionsabfrage:** Ermöglicht die interaktive Eingabe oder Übernahme einer neuen Versionsnummer, die automatisch in `dateicrypt.py` aktualisiert wird.
+2.  **Pre-Commit-Prüfungen:** Führt automatisiert alle Linter-, Formatierungs-, Sicherheits- und Testprüfungen (`ruff`, `bandit`, `pytest`) aus und bricht bei Fehlern ab.
+3.  **Vulnerability Scan:** Prüft die installierten Pakete mit `pip-audit` auf Sicherheitslücken.
+4.  **Laufenden Prozess beenden:** Schließt eine eventuell bereits geöffnete Instanz der Anwendung.
+5.  **Aufräumen:** Entfernt alte Build-Artefakte.
+6.  **Code-Bereinigung:** Entfernt Kommentare und Docstrings aus dem Quellcode für die Kompilierung.
+7.  **Cythonize:** Konvertiert die bereinigten `.py`-Dateien in `.c`-Dateien und kompiliert sie zu `.pyd`-Modulen.
+8.  **PyInstaller:** Bündelt alle Module, die Lizenzdatei (`LICENSE.txt`) und das Icon direkt in eine einzige, in sich geschlossene Datei (`DateiTresor.exe`).
+9.  **Server-Update-Datei:** Erstellt die Datei `version.txt` mit dem PEP-440-Prüfstring (`<Version>+<SHA256>`) im Ordner `server/` für den Webserver-Upload.
+10. **Sicheres finales Aufräumen:** Entfernt alle temporären Build-Dateien und überschreibt sie vorher mehrfach mit Zufallsdaten, um eine Wiederherstellung zu verhindern.
+
+Die fertige Standalone-Anwendung `DateiTresor.exe` befindet sich anschließend ohne überflüssige Begleitdateien direkt im Verzeichnis `dist_YYYYMMDD-HHMMSS`.
+
+
 
 ## Geplante Features & Ideen für die Zukunft
 

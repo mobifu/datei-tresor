@@ -14,6 +14,7 @@ import traceback
 import urllib.request
 import webbrowser
 import zipfile
+from datetime import datetime
 from tkinter import filedialog, messagebox
 
 import customtkinter
@@ -40,10 +41,12 @@ from secure_memory import SecureString  # NEU: Import der sicheren String-Klasse
 # --- Logik ---
 
 # --- Konstanten ---
-COMPANY_NAME = "© Agentur Schölzke 2025"
+COMPANY_NAME = f"© Agentur Schölzke {datetime.now().year}"
 COMPANY_URL = "https://www.agentur-schoelzke.de"
+
 DONATE_URL = "https://paypal.me/kaischoelzke"
-VERSION_INFO = "v1.4.1"  # Die aktuelle Version dieser Anwendung
+VERSION_INFO = "v1.4.3"  # Die aktuelle Version dieser Anwendung
+
 
 # URL zur Textdatei, die die neueste Versionsnummer enthält (z.B. "v1.0.1")
 VERSION_CHECK_URL = "https://www.agentur-schoelzke.de/daten_tresor/version.txt"  # BITTE ANPASSEN
@@ -1473,13 +1476,23 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
     def show_license_info(self):  # Korrigierte Einrückung
         """Öffnet ein Fenster zur Anzeige der Lizenzinformationen. Fängt Fehler selbst ab."""
         try:
-            # Bestimmt den Pfad zur Lizenzdatei, relativ zum Skript
-            # sys.argv[0] ist zuverlässiger, wenn die App als .exe verpackt ist
-            base_path = os.path.dirname(sys.argv[0])
-            license_path = os.path.join(base_path, "LICENSE.txt")
+            # Suche Lizenzdatei: Zuerst im PyInstaller-Bundle (_MEIPASS), dann im Skriptverzeichnis
+            search_dirs = []
+            if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+                search_dirs.append(sys._MEIPASS)
+            search_dirs.append(os.path.dirname(os.path.abspath(sys.argv[0])))
+            search_dirs.append(os.path.dirname(os.path.abspath(__file__)))
 
-            with open(license_path, encoding="utf-8") as f:
-                license_text = f.read()
+            license_text = None
+            for directory in search_dirs:
+                candidate = os.path.join(directory, "LICENSE.txt")
+                if os.path.isfile(candidate):
+                    with open(candidate, encoding="utf-8") as f:
+                        license_text = f.read()
+                    break
+
+            if not license_text:
+                raise FileNotFoundError("Die Lizenzdatei 'LICENSE.txt' wurde nicht gefunden.")
 
             # Erstelle ein neues Toplevel-Fenster
             dialog = customtkinter.CTkToplevel(self)

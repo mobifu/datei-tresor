@@ -3,6 +3,7 @@ import hashlib
 import logging
 import os
 import platform
+import re
 import secrets
 import shutil
 import subprocess
@@ -46,6 +47,95 @@ def get_version_from_script(script_path):
                 logging.info(f"Version gefunden: {version}")
                 return version
     raise ValueError("VERSION_INFO konnte in der Hauptdatei nicht gefunden werden.")
+
+
+def set_version_in_script(script_path, new_version):
+    """Aktualisiert die VERSION_INFO in der angegebenen Python-Datei."""
+    target_path = Path(script_path).resolve()
+    if not target_path.exists():
+        raise FileNotFoundError(f"Datei nicht gefunden: {target_path}")
+
+    new_version_clean = new_version.strip()
+    if not new_version_clean.startswith("v"):
+        new_version_clean = f"v{new_version_clean}"
+
+    with open(target_path, encoding="utf-8") as f:
+        content = f.read()
+
+    # Ersetze VERSION_INFO = "..." oder '...'
+    pattern = r'^(VERSION_INFO\s*=\s*)(["\']).*?\2'
+    new_content, count = re.subn(pattern, rf'\g<1>"{new_version_clean}"', content, flags=re.MULTILINE)
+
+    if count == 0:
+        raise ValueError(f"VERSION_INFO konnte in '{target_path}' nicht gefunden oder ersetzt werden.")
+
+    with open(target_path, "w", encoding="utf-8") as f:
+        f.write(new_content)
+
+    logging.info(f"Version in '{target_path}' erfolgreich auf '{new_version_clean}' aktualisiert.")
+    return new_version_clean
+
+
+def prompt_version_update(main_script, target_version=None, interactive=True):
+    """Ermöglicht das Anpassen der Software-Version vor dem Build."""
+    current_version = get_version_from_script(main_script)
+
+    if target_version:
+        return set_version_in_script(main_script, target_version)
+
+    if interactive and sys.stdin.isatty():
+        try:
+            prompt_msg = (
+                f"Aktuelle Version: '{current_version}'. Neue Version eingeben (Enter für '{current_version}'): "
+            )
+            user_input = input(prompt_msg).strip()
+            if user_input:
+                return set_version_in_script(main_script, user_input)
+        except (EOFError, KeyboardInterrupt):
+            logging.info("Versionsabfrage übersprungen. Behalte aktuelle Version bei.")
+
+    return current_version
+
+
+def generate_license_file(target_dir, year=None, author="Agentur Schölzke"):
+    """Generiert die Datei LICENSE.txt (MIT + Nutzungsbedingungen) im Zielverzeichnis."""
+    target_path = Path(target_dir).resolve()
+    target_path.mkdir(parents=True, exist_ok=True)
+    license_file = target_path / "LICENSE.txt"
+
+    license_year = str(year) if year else str(datetime.now().year)
+
+    license_text = f"""MIT License
+
+Copyright (c) {license_year} {author}
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--- Nutzungsbedingungen ---
+Die Nutzung dieser Software erfolgt auf eigenes Risiko. Die Autoren übernehmen keine Haftung für Datenverlust oder andere Schäden, die durch die direkte oder indirekte Nutzung dieser Anwendung entstehen. Es wird dringend empfohlen, vor der Verschlüsselung wichtiger Daten Backups zu erstellen.
+"""
+
+    with open(license_file, "w", encoding="utf-8") as f:
+        f.write(license_text)
+
+    logging.info(f"Datei 'LICENSE.txt' erfolgreich in '{license_file}' generiert.")
+    return license_file
 
 
 # Funktion zum Finden aller Python-Dateien der eigentlichen Anwendung
@@ -230,9 +320,13 @@ def create_pyinstaller_command(main_script, app_name):
         BUILD_TEMP,
     ]
 
+    # Lizenzdatei direkt in die .exe bündeln
+    if os.path.exists("LICENSE.txt"):
+        command.extend(["--add-data", f"LICENSE.txt{os.pathsep}."])
+
     # Icon ist eine Windows-spezifische Option
     if platform.system() == "Windows" and os.path.exists("favicon.ico"):
-        command.extend(["--add-data", "favicon.ico;.", "--icon", "favicon.ico"])
+        command.extend(["--add-data", f"favicon.ico{os.pathsep}.", "--icon", "favicon.ico"])
 
     return command
 
@@ -287,8 +381,8 @@ def final_cleanup():
 
 
 # Funktion zum Erstellen der Hash-Datei
-def generate_hash_file(executable_path, version_info):
-    """Berechnet den SHA-256-Hash der ausführbaren Datei und speichert ihn zusammen mit der Version."""
+def generate_hash_file(executable_path, version_info, target_dir="server"):
+    """Berechnet den SHA-256-Hash der ausführbaren Datei und speichert die Update-Info für den Server."""
     logging.info(f"Berechne SHA-256 Hash für '{executable_path}'...")
     try:
         hasher = hashlib.sha256()
@@ -300,13 +394,15 @@ def generate_hash_file(executable_path, version_info):
         file_hash = hasher.hexdigest()
         logging.info(f"SHA-256 Hash: {file_hash}")
 
-        # Schreibe Version und Hash in die version.txt im DIST_DIR
-        version_file_path = os.path.join(os.path.dirname(executable_path), "version.txt")
+        # Schreibe Version und Hash in server/version.txt (nicht im dist-Ordner, um diesen sauber zu halten)
+        os.makedirs(target_dir, exist_ok=True)
+        version_file_path = os.path.join(target_dir, "version.txt")
         with open(version_file_path, "w", encoding="utf-8") as f:
             # WICHTIG: Wir nutzen '+' statt ';'. Das ist PEP-440 konform.
-            # Alte Versionen erkennen dies als "v1.4.0 mit Zusatz" und stürzen nicht ab.
             f.write(f"{version_info}+{file_hash}")
-        logging.info(f"Datei 'version.txt' erfolgreich in '{version_file_path}' erstellt.")
+        logging.info(f"Server-Update-Datei 'version.txt' erfolgreich in '{version_file_path}' erstellt.")
+        logging.info(f"Update-Prüfstring für den Server: {version_info}+{file_hash}")
+        return file_hash
     except Exception as e:
         raise Exception(f"Fehler beim Erstellen der Hash-Datei: {e}") from e
 
@@ -376,8 +472,12 @@ def run_pre_commit_checks():
 
 
 # Build-Prozess ausführen
-def run_build_process(main_script, app_name):
+def run_build_process(main_script, app_name, target_version=None, interactive=True):
     try:
+        # 0. Version ermitteln / anpassen
+        version = prompt_version_update(main_script, target_version=target_version, interactive=interactive)
+        logging.info(f"Starte Build für Version '{version}'...")
+
         # 1. Pre-Commit-Prüfungen (Linting, Formatierung, Security, Tests)
         run_pre_commit_checks()
 
@@ -387,11 +487,11 @@ def run_build_process(main_script, app_name):
         # 3. Laufenden Prozess beenden
         kill_process_if_running(app_name)
 
-        # 3. Aufräumen alter Build-Dateien
+        # 4. Aufräumen alter Build-Dateien
         logging.info("Starte Aufräumen alter Build-Dateien...")
         cleanup_build_files()
 
-        # 4. Python-Dateien finden
+        # 5. Python-Dateien finden
         logging.info("Suche nach Python-Dateien...")
         python_files = find_all_python_files(SOURCE_DIR)
 
@@ -402,11 +502,11 @@ def run_build_process(main_script, app_name):
         if not python_files:
             raise ValueError("Keine Python-Dateien im Quellverzeichnis gefunden (außer dem Build-Skript).")
 
-        # 5. Build-Verzeichnisse erstellen (vorgezogen, da STRIPPED_SOURCE_DIR benötigt wird)
+        # 6. Build-Verzeichnisse erstellen (vorgezogen, da STRIPPED_SOURCE_DIR benötigt wird)
         logging.info("Erstelle Build-Verzeichnisse...")
         create_build_directories()
 
-        # NEUER SCHRITT: 5b. Code bereinigen und in ein temporäres Verzeichnis kopieren
+        # 7. Code bereinigen und in ein temporäres Verzeichnis kopieren
         logging.info(f"Entferne Kommentare/Docstrings und kopiere nach '{STRIPPED_SOURCE_DIR}'...")
         stripped_python_files = []
         for py_file in python_files:
@@ -419,14 +519,14 @@ def run_build_process(main_script, app_name):
             strip_comments_and_docstrings(py_file, target_path)
             stripped_python_files.append(target_path)
 
-        # 6. Cython-Erweiterungen aus dem BEREINIGTEN Code erstellen
+        # 8. Cython-Erweiterungen aus dem BEREINIGTEN Code erstellen
         logging.info("Erstelle Cython-Erweiterungen...")
         # Wichtig: Wir müssen das Arbeitsverzeichnis ändern, damit die Modulpfade stimmen
         original_cwd = os.getcwd()
         os.chdir(STRIPPED_SOURCE_DIR)
         extensions = create_cython_extensions([os.path.relpath(f, STRIPPED_SOURCE_DIR) for f in stripped_python_files])
 
-        # 7. Setup-Funktion aufrufen, um die .c- und .so-Dateien im bereinigten Verzeichnis zu erstellen
+        # 9. Setup-Funktion aufrufen, um die .c- und .so-Dateien im bereinigten Verzeichnis zu erstellen
         logging.info("Starte Cython-Kompilierung...")
         setup(
             name=app_name,
@@ -435,30 +535,57 @@ def run_build_process(main_script, app_name):
         )
         os.chdir(original_cwd)  # Arbeitsverzeichnis zurücksetzen
 
-        # 8. PyInstaller-Befehl erstellen (verweist auf das bereinigte Hauptskript)
+        # 10. Sicherstellen, dass LICENSE.txt im Root existiert, damit PyInstaller sie einbindet
+        root_license = Path(SOURCE_DIR).resolve() / "LICENSE.txt"
+        if not root_license.exists():
+            generate_license_file(SOURCE_DIR)
+
+        # 11. PyInstaller-Befehl erstellen (verweist auf das bereinigte Hauptskript)
         logging.info("Erstelle PyInstaller-Befehl...")
         stripped_main_script = os.path.join(STRIPPED_SOURCE_DIR, main_script)
         pyinstaller_command = create_pyinstaller_command(stripped_main_script, app_name)
 
-        # 9. PyInstaller ausführen
+        # 12. PyInstaller ausführen
         logging.info("Starte PyInstaller...")
         subprocess.check_call(pyinstaller_command)
 
-        # 10. Hash-Datei für das Update generieren
+        # 13. Hash-Datei für das Server-Update generieren (im Ordner 'server', um 'dist' sauber zu halten)
         executable_path = os.path.join(original_cwd, DIST_DIR, f"{app_name}.exe")
         if not os.path.exists(executable_path):
             raise FileNotFoundError(f"Die von PyInstaller erstellte Datei wurde nicht gefunden: {executable_path}")
-        version = get_version_from_script(main_script)
-        generate_hash_file(executable_path, version)
+        server_dir = os.path.join(original_cwd, "server")
+        generate_hash_file(executable_path, version, target_dir=server_dir)
 
-        # 11. Finales Aufräumen
+        # 14. Finales Aufräumen
         final_cleanup()
 
-        logging.info(f"Build abgeschlossen! Ausführbare Datei befindet sich in '{DIST_DIR}'.")
+        logging.info(f"Build abgeschlossen! Standalone-Anwendung befindet sich in '{DIST_DIR}'.")
 
     except Exception as e:
         logging.error(f"Build fehlgeschlagen: {e}")
+        raise
 
 
 if __name__ == "__main__":
-    run_build_process(MAIN_SCRIPT, APP_NAME)
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Build-Skript für DateiTresor")
+    parser.add_argument(
+        "--version",
+        dest="target_version",
+        help="Neue Version setzen (z. B. v1.4.2)",
+        default=None,
+    )
+    parser.add_argument(
+        "--no-interactive",
+        action="store_true",
+        help="Interaktive Versionsabfrage deaktivieren",
+    )
+    args = parser.parse_args()
+
+    run_build_process(
+        MAIN_SCRIPT,
+        APP_NAME,
+        target_version=args.target_version,
+        interactive=not args.no_interactive,
+    )
