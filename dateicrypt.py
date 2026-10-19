@@ -46,7 +46,7 @@ COMPANY_NAME = f"© Agentur Schölzke {datetime.now().year}"
 COMPANY_URL = "https://www.agentur-schoelzke.de"
 
 DONATE_URL = "https://paypal.me/kaischoelzke"
-VERSION_INFO = "v1.4.3"  # Die aktuelle Version dieser Anwendung
+VERSION_INFO = "v1.4.4"  # Die aktuelle Version dieser Anwendung
 
 
 # URL zur Textdatei, die die neueste Versionsnummer enthält (z.B. "v1.0.1")
