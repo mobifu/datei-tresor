@@ -541,32 +541,43 @@ class App(customtkinter.CTk, TkinterDnD.DnDWrapper):
         super().__init__()
         # Initialisierung von tkinterdnd2 (inkl. PyInstaller Bundle-Pfade)
         self.dnd_available = False
+        log_file = os.path.join(os.path.expanduser("~"), "dateitresor_debug.log")
+        diag = []
         try:
+            diag.append(f"sys.frozen: {getattr(sys, 'frozen', False)}")
+            diag.append(f"sys._MEIPASS: {getattr(sys, '_MEIPASS', None)}")
+            diag.append(f"DND_FILES: {DND_FILES}")
             if hasattr(sys, "_MEIPASS"):
-                # Im PyInstaller Onefile-Modus Pfade zu tkdnd in Tcls auto_path registrieren.
-                # WICHTIG: Tcl erfordert zwingend Forward-Slashes '/', da Backslashes als Escapes (\t, \U etc.) interpretiert werden.
-                possible_dnd_dirs = [
-                    os.path.join(sys._MEIPASS, "tkinterdnd2", "tkdnd", "win-x64"),
-                    os.path.join(sys._MEIPASS, "tkinterdnd2", "tkdnd"),
-                    os.path.join(sys._MEIPASS, "tkdnd", "win-x64"),
-                    os.path.join(sys._MEIPASS, "tkdnd"),
-                ]
-                for dnd_dir in possible_dnd_dirs:
-                    if os.path.isdir(dnd_dir):
-                        self.tk.call("lappend", "auto_path", dnd_dir.replace("\\", "/"))
+                dnd_dir = os.path.join(sys._MEIPASS, "tkinterdnd2", "tkdnd", "win-x64").replace("\\", "/")
+                diag.append(f"tkdnd_dir: {dnd_dir}, exists: {os.path.exists(dnd_dir)}")
+                if os.path.exists(dnd_dir):
+                    diag.append(f"files: {os.listdir(dnd_dir)}")
+                self.tk.call("lappend", "auto_path", dnd_dir)
 
+            diag.append(f"auto_path: {self.tk.call('set', 'auto_path')}")
             try:
-                self.TkdndVersion = self.tk.call("package", "require", "tkdnd")
-            except Exception:
+                v = self.tk.call("package", "require", "tkdnd")
+                diag.append(f"package require result: {v}")
+                self.TkdndVersion = v
+                self.dnd_available = True
+            except Exception as pe:
+                diag.append(f"package require FAILED: {pe}")
                 self.TkdndVersion = TkinterDnD._require(self)
-            self.dnd_available = True
+                diag.append(f"_require result: {self.TkdndVersion}")
+                self.dnd_available = True
         except Exception as e:
-            # Fängt Fehler ab, falls TkDND auf dem System nicht geladen werden kann
+            diag.append(f"FATAL: {e}\n{traceback.format_exc()}")
             print(f"Warnung: Konnte TkinterDND nicht initialisieren: {e}")
             messagebox.showwarning(
                 "Warnung",
                 f"Drag-and-Drop-Funktionalität konnte nicht initialisiert werden:\n{e}",
             )
+        finally:
+            try:
+                with open(log_file, "w", encoding="utf-8") as f:
+                    f.write("\n".join(diag) + "\n")
+            except Exception:
+                pass
 
         self.title("Datei Tresor")
         self.geometry("500x350")
