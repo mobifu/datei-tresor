@@ -1,10 +1,27 @@
-# Datei Tresor
+<div align="center">
+
+# 🔒 Datei-Tresor
 
 **Ihre Daten, Ihre Kontrolle: Machen Sie das Internet sicherer – mit einem Klick.**
 
-![Datei Tresor](documents/datei-tresor.png)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE.txt)
+[![CustomTkinter](https://img.shields.io/badge/GUI-CustomTkinter-blue?style=for-the-badge)](https://github.com/TomSchimansky/CustomTkinter)
+[![Encryption](https://img.shields.io/badge/Encryption-AES--256--GCM-blueviolet?style=for-the-badge)](https://cryptography.io/)
+[![Code Style](https://img.shields.io/badge/Code%20Style-Ruff-black?style=for-the-badge&logo=ruff&logoColor=white)](https://github.com/astral-sh/ruff)
+[![Security](https://img.shields.io/badge/Security-Bandit-orange?style=for-the-badge)](https://github.com/PyCQA/bandit)
+[![Tests](https://img.shields.io/badge/Tests-50%20Passed-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+
+<br/>
+
+<img src="documents/datei-tresor.png" alt="Datei Tresor Benutzeroberfläche" width="600" style="border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.15);" />
+
+</div>
+
+---
 
 Der Datei-Tresor ist eine kostenlose Desktop-Anwendung für Windows, mit der Sie jede Art von Datei oder Ordner mit einem Passwort schützen können. Die Software verwendet eine starke, nach Industriestandard anerkannte Verschlüsselung, um Ihre Daten unlesbar zu machen. Nur mit dem korrekten Passwort können die Daten wieder entschlüsselt werden.
+
 
 ## Features
 
